@@ -1,0 +1,5 @@
+Flask
+gunicorn
+werkzeug
+requests
+deep-translator
