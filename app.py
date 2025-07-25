@@ -8,7 +8,7 @@ from psycopg2.extras import RealDictCursor
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+DATABASE_URL = os.getenv("${{ Postgres.DATABASE_URL }}DATABASE_URL")
 
 def get_db():
     return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
