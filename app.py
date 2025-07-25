@@ -1,33 +1,40 @@
 from flask import Flask, render_template, request, redirect, session, url_for, flash
-import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
-import os
-import requests
 from deep_translator import GoogleTranslator
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+def get_db():
+    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
 def init_db():
-    with sqlite3.connect("users.db") as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                email TEXT UNIQUE NOT NULL,
-                password TEXT NOT NULL
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                email TEXT NOT NULL,
-                subject TEXT NOT NULL,
-                message TEXT NOT NULL,
-                submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+    with get_db() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS messages (
+                    id SERIAL PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
 
 init_db()
 
@@ -43,7 +50,6 @@ def whoiam():
 def nothing():
     return render_template("nothing.html")
 
-
 @app.route("/contact", methods=["GET", "POST"])
 def contact():
     if request.method == "POST":
@@ -57,20 +63,19 @@ def contact():
             return redirect(url_for("contact"))
 
         try:
-            with sqlite3.connect("users.db") as conn:
-                conn.execute(
-                    "INSERT INTO messages (name, email, subject, message) VALUES (?, ?, ?, ?)",
-                    (name, email, subject, message)
-                )
-                conn.commit()
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO messages (name, email, subject, message) VALUES (%s, %s, %s, %s)",
+                        (name, email, subject, message)
+                    )
+                    conn.commit()
             flash("Your message has been sent!", "success")
-            return redirect(url_for("contact"))
         except Exception as e:
             flash(f"Error while sending message: {e}", "danger")
-            return redirect(url_for("contact"))
+        return redirect(url_for("contact"))
 
     return render_template("contact.html")
-
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -86,13 +91,14 @@ def register():
         hashed_pw = generate_password_hash(password)
 
         try:
-            with sqlite3.connect("users.db") as conn:
-                conn.execute("INSERT INTO users (username, email, password) VALUES (?, ?, ?)",
-                             (username, email, hashed_pw))
-                conn.commit()
+            with get_db() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("INSERT INTO users (username, email, password) VALUES (%s, %s, %s)",
+                                (username, email, hashed_pw))
+                    conn.commit()
             flash("Account created! Please log in.", "success")
             return redirect(url_for("login"))
-        except sqlite3.IntegrityError:
+        except Exception:
             flash("Username or email already exists.", "warning")
             return redirect(url_for("register"))
 
@@ -104,13 +110,15 @@ def login():
         email = request.form.get("email")
         password = request.form.get("password")
 
-        with sqlite3.connect("users.db") as conn:
-            user = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+                user = cur.fetchone()
 
-        if user and check_password_hash(user[3], password):
-            session["user_id"] = user[0]
-            session["username"] = user[1]
-            flash(f"Welcome back, {user[1]}!", "info")
+        if user and check_password_hash(user["password"], password):
+            session["user_id"] = user["id"]
+            session["username"] = user["username"]
+            flash(f"Welcome back, {user['username']}!", "info")
             return redirect(url_for("dashboard"))
         else:
             flash("Invalid email or password.", "danger")
@@ -124,7 +132,6 @@ def dashboard():
         flash("Please log in first.", "warning")
         return redirect(url_for("login"))
     return render_template("dashboard.html", username=session.get("username"))
-
 
 @app.route("/translate", methods=["POST"])
 def translate():
@@ -140,7 +147,6 @@ def translate():
         translated_text = f"Translation failed: {e}"
 
     return render_template("dashboard.html", username=session["username"], translated=translated_text)
-
 
 @app.route("/logout")
 def logout():
