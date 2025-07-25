@@ -1,0 +1,13 @@
+{
+  "build": {
+    "builder": "NIXPACKS",
+    "nixpacksPlan": {
+      "phases": {
+        "install": {
+          "aptPkgs": ["libpq-dev", "python3-dev"]
+        }
+      }
+    }
+  },
+  "start": "gunicorn app:app --bind 0.0.0.0:$PORT"
+}
