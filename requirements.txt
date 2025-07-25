@@ -1,5 +1,5 @@
 Flask
-gunicorn
-werkzeug
 requests
-deep-translator
+deep_translator
+werkzeug
+psycopg2-binary
